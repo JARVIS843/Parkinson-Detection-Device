@@ -21,7 +21,7 @@ This project is a prototype of a device that can detect Parkinson's disease usin
 
 2. Clone the repository to your local machine using the following command:
 ```
-git clone [TODO: Insert GitHub link here]
+git clone https://github.com/JARVIS843/Parkinson-Detection-Device.git
 ```
 
 ## License (MIT)
