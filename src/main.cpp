@@ -5,6 +5,7 @@
 
 
 // ====== Constants and Configs ======
+#pragma region Constants and Configs
 // LIS3DH Registers
 #define LIS3DH_REG_CTRL1    0x20
 #define LIS3DH_REG_CTRL4    0x23
@@ -28,8 +29,10 @@
 #define MAX_SAMPLES 128
 #define SAMPLING_FREQUENCY 50 //Hz
 
+#pragma endregion Constants and Configs
 
 // ====== Global Variables ======
+#pragma region Global Variables
 // Sensor data
 float x_g = 0.0;
 float y_g = 0.0;
@@ -43,119 +46,82 @@ float z_g_avg = 0.0;
 
 // Sample storage
 volatile uint16_t sampleIndex = 0;
-
 float xg_samples[MAX_SAMPLES];
 float yg_samples[MAX_SAMPLES];
 float zg_samples[MAX_SAMPLES];
 
 // FFT
-struct PeakInfo {
+struct PeakInfo {   // Struct to hold frequency and magnitude information, used in FFT to export results
   float frequency;
   float magnitude;
 };
 float dominantFreqMag[6]; // 0-2 frequencies (first three), 3-5 magnitudes (last three)
 
 
-// Timer and Logging
+// Timer
 volatile unsigned long lastTimer1Micros = 0;
 volatile unsigned long startSamplingTime = 0;
 volatile uint16_t lastSampleCount = 0; // Last sample count for Timer3
 
-
+// Logging
 char logBuffer[MAX_LOG_MESSAGES][MAX_MESSAGE_LENGTH];
 volatile uint8_t logHead = 0;
 volatile uint8_t logTail = 0;
 
+#pragma endregion Global Variables
+
 // ====== Function Prototypes ======
+#pragma region Function Prototypes
+void realTimeTesting();
 void setUpTimer1();
 void setupTimer3();
 void stopTimer1();
 void startTimer1();
 void stopTimer3();
 void startTimer3();
+void SensorSetup();
 void lis3dh_write(uint8_t reg, uint8_t value);
 void lis3dh_read_multiple(uint8_t reg, uint8_t* buffer, uint8_t len);
 void updateSensorData();
 void analyzeAllAxes();
 PeakInfo computeDominantFrequency(int16_t* inputArray);
 void queueLog(const char* msg);
+void loopPrintLogs();
 
-// ====== Setup ======
+#pragma endregion Function Prototypes
+
+// ====== Arduino Framework ======
+#pragma region Arduino Framework
 void setup() {
+  // Initialize Serial and SPI
   Serial.begin(115200);
-
   SPI.begin();
   SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
 
-  DDRB |= (1 << PB4);    // Set D8 (PB4) as output
-  PORTB |= (1 << PB4);   // Set D8 high (inactive)
 
-  delay(100);
-
-  // LIS3DH Configuration
-  lis3dh_write(LIS3DH_REG_CTRL1, 0x47); // 50Hz ODR
-  lis3dh_write(LIS3DH_REG_CTRL4, 0x10); // ±4g sensitivity
-
-  delay(100);
+  SensorSetup(); // Setup LIS3DH sensor
 
   cli(); // Disable interrupts globally
 
-  setUpTimer1();
-  setupTimer3();
+  setUpTimer1();  // Setup Timer1 for 20ms sampling, but not started yet
+  setupTimer3();  // Setup Timer3 for 3 seconds sampling, but not started yet
 
   sei(); // Enable interrupts globally
 }
 
-// ====== Main Loop ======
 void loop() {
-  if (Serial.available()) {
-    char command = Serial.read();
+  realTimeTesting(); // Check for serial commands
 
-    if (command == 's') {
-      startTimer3();
-      Serial.println(F(">Started 3-second sampling..."));
-    }
-    else if (command == 'l') {
-      // Only print size when sampling is done (sampleIndex == 0 means finished)
-      if (sampleIndex == 0) {
-        Serial.print(F(">Samples collected: "));
-        Serial.println(lastSampleCount);
-      } else {
-        Serial.println(F(">Sampling not complete yet!"));
-      }
-    }
-    else if (command == 'f') {
-      analyzeAllAxes();
-    
-      Serial.println(F(">Dominant Frequencies and Magnitudes:"));
-    
-      Serial.print(F("xg: ")); 
-      Serial.print(dominantFreqMag[0], 2); 
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[3], 2);
-    
-      Serial.print(F("yg: ")); 
-      Serial.print(dominantFreqMag[1], 2); 
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[4], 2);
-    
-      Serial.print(F("zg: ")); 
-      Serial.print(dominantFreqMag[2], 2); 
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[5], 2);
-    }
-  }
 
-  if (LOGGING_ENABLED) {
-    while (logTail != logHead) {
-      Serial.print(logBuffer[logTail]);
-      logTail = (logTail + 1) % MAX_LOG_MESSAGES;
-    }
-  }
+  loopPrintLogs(); // Print logs from logBuffer if logging is enabled
 }
 
+#pragma endregion Arduino Framework
 
-// ====== Timer1 Interrupt Service Routine ======
+// ====== Timer & ISR ======
+#pragma region Timer & ISR
+// This ISR is triggered when Timer1 reaches the set interval (20ms)
+// It reads the sensor data and applies filtering, and logs the interval time if logging is enabled
 ISR(TIMER1_COMPA_vect) {
   if (LOGGING_ENABLED) {
     unsigned long now = micros();
@@ -173,7 +139,9 @@ ISR(TIMER1_COMPA_vect) {
   }
 }
 
-// ====== Timer3 Interrupt Service Routine ======
+// This ISR is triggered when Timer3 reaches the set interval (3 seconds)
+// It stops Timer1 and Timer3, and prepares for the next sampling
+// It also logs the elapsed time since the start of sampling
 ISR(TIMER3_COMPA_vect) {
   stopTimer1();
   stopTimer3();
@@ -192,7 +160,12 @@ ISR(TIMER3_COMPA_vect) {
   //startTimer3(); // Restart Timer3 for next sampling
 }
 
+#pragma endregion Timer & ISR
+
 // ====== Functions ======
+#pragma region Functions
+
+#pragma region Timer Functions
 // Timer1 and Timer3 
 void setUpTimer1() {
   TCCR1A = 0;
@@ -233,8 +206,25 @@ void stopTimer3() {
   TCCR3B &= ~((1 << CS32) | (1 << CS31) | (1 << CS30));
 }
 
+#pragma endregion Timer Functions
+
+#pragma region LIS3DH Functions
 
 // LIS3DH SPI communication functions
+void SensorSetup()
+{
+  DDRB |= (1 << PB4);  // Set D8 (PB4) as output
+  PORTB |= (1 << PB4); // Set D8 high (inactive)
+
+  delay(100);
+
+  // LIS3DH Configuration
+  lis3dh_write(LIS3DH_REG_CTRL1, 0x47); // 50Hz ODR
+  lis3dh_write(LIS3DH_REG_CTRL4, 0x10); // ±4g sensitivity
+
+  delay(100);
+}
+
 void lis3dh_write(uint8_t reg, uint8_t value) {
   CS_LOW();
   SPI.transfer(0x00 | (reg & 0x3F));
@@ -252,6 +242,8 @@ void lis3dh_read_multiple(uint8_t reg, uint8_t* buffer, uint8_t len) {
 }
 
 // Sensor Sampling
+// This function reads the sensor data and applies a high-pass filter and moving average filter
+// It also queues the data for logging if logging is enabled
 void updateSensorData() {
   uint8_t rawData[6];
   int16_t x_raw, y_raw, z_raw;
@@ -303,7 +295,12 @@ void updateSensorData() {
   }
 }
 
+#pragma endregion LIS3DH Functions
+
+#pragma region FFT Functions
+
 // FFT Processing
+// This function computes the FFT of the input array and returns the dominant frequency and magnitude, packaged in a PeakInfo struct
 PeakInfo computeDominantFrequency(float* inputArray) {
   float vImag[MAX_SAMPLES] = {0.0};
   ArduinoFFT<float> FFT(inputArray, vImag, MAX_SAMPLES, SAMPLING_FREQUENCY);
@@ -319,7 +316,7 @@ PeakInfo computeDominantFrequency(float* inputArray) {
   return result;
 }
 
-
+// Analyze all axes and compute dominant frequencies and magnitudes
 void analyzeAllAxes() {
   PeakInfo xg = computeDominantFrequency(xg_samples);
   PeakInfo yg = computeDominantFrequency(yg_samples);
@@ -333,7 +330,63 @@ void analyzeAllAxes() {
   dominantFreqMag[5] = zg.magnitude;
 }
 
+#pragma endregion FFT Functions
+
+#pragma region Real-time Testing, Debugging, and Logging
+
+// Real-time testing and debug function
+// This function is called in the main loop to check for serial commands
+void realTimeTesting()
+{
+  if (Serial.available())
+  {
+    char command = Serial.read();
+
+    if (command == 's')
+    {
+      startTimer3();
+      Serial.println(F(">Started 3-second sampling..."));
+    }
+    else if (command == 'l')
+    {
+      // Only print size when sampling is done (sampleIndex == 0 means finished)
+      if (sampleIndex == 0)
+      {
+        Serial.print(F(">Samples collected: "));
+        Serial.println(lastSampleCount);
+      }
+      else
+      {
+        Serial.println(F(">Sampling not complete yet!"));
+      }
+    }
+    else if (command == 'f')
+    {
+      analyzeAllAxes();
+
+      Serial.println(F(">Dominant Frequencies and Magnitudes:"));
+
+      Serial.print(F("xg: "));
+      Serial.print(dominantFreqMag[0], 2);
+      Serial.print(F(" Hz, Magnitude: "));
+      Serial.println(dominantFreqMag[3], 2);
+
+      Serial.print(F("yg: "));
+      Serial.print(dominantFreqMag[1], 2);
+      Serial.print(F(" Hz, Magnitude: "));
+      Serial.println(dominantFreqMag[4], 2);
+
+      Serial.print(F("zg: "));
+      Serial.print(dominantFreqMag[2], 2);
+      Serial.print(F(" Hz, Magnitude: "));
+      Serial.println(dominantFreqMag[5], 2);
+    }
+  }
+}
+
 // Logging function
+// This function queues a log message into the log buffer to prevent blocking
+// It checks if logging is enabled and if the buffer is not full
 void queueLog(const char* msg) {
   if (!LOGGING_ENABLED) return;
 
@@ -346,3 +399,20 @@ void queueLog(const char* msg) {
   strncpy(logBuffer[logHead], msg, MAX_MESSAGE_LENGTH);
   logHead = nextHead;
 }
+
+void loopPrintLogs()
+{
+  if (LOGGING_ENABLED)
+  {
+    while (logTail != logHead)
+    {
+      Serial.print(logBuffer[logTail]);
+      logTail = (logTail + 1) % MAX_LOG_MESSAGES;
+    }
+  }
+}
+
+#pragma endregion Real-time Testing, Debugging, and Logging
+
+
+#pragma endregion Functions
