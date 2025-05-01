@@ -1,5 +1,6 @@
 #include <Arduino.h>
 #include <arduinoFFT.h>
+#include <Adafruit_CircuitPlayground.h>
 #include <SPI.h>
 #include <math.h> 
 
@@ -55,7 +56,9 @@ struct PeakInfo {   // Struct to hold frequency and magnitude information, used 
   float frequency;
   float magnitude;
 };
-float dominantFreqMag[6]; // 0-2 frequencies (first three), 3-5 magnitudes (last three)
+//float dominantFreqMag[6]; // 0-2 frequencies (first three), 3-5 magnitudes (last three)
+float generalizedFreq = 0.0;
+float generalizedMag = 0.0;
 
 
 // Timer
@@ -84,9 +87,10 @@ void lis3dh_write(uint8_t reg, uint8_t value);
 void lis3dh_read_multiple(uint8_t reg, uint8_t* buffer, uint8_t len);
 void updateSensorData();
 void analyzeAllAxes();
-PeakInfo computeDominantFrequency(int16_t* inputArray);
+PeakInfo computeDominantFrequency(float* inputArray);
 void queueLog(const char* msg);
 void loopPrintLogs();
+void indicateConditionWithLED(float frequency, float amplitude);
 
 #pragma endregion Function Prototypes
 
@@ -97,6 +101,7 @@ void setup() {
   Serial.begin(115200);
   SPI.begin();
   SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
+  CircuitPlayground.begin(); // Initialize Circuit Playground
 
 
   SensorSetup(); // Setup LIS3DH sensor
@@ -107,6 +112,10 @@ void setup() {
   setupTimer3();  // Setup Timer3 for 3 seconds sampling, but not started yet
 
   sei(); // Enable interrupts globally
+
+  //delay(1000); // Wait for a second before starting the sampling
+  //Serial.println(F(">Starting 3-second sampling..."));
+  //startTimer3(); // Start Timer3 for the first sampling
 }
 
 void loop() {
@@ -154,10 +163,12 @@ ISR(TIMER3_COMPA_vect) {
     queueLog(msg);
   }
   // Prepare for next sampling
-  Serial.println(F(">Done sampling!"));
+  Serial.println(F(">Sampling done!"));
   lastSampleCount = sampleIndex;
   sampleIndex = 0;
-  //startTimer3(); // Restart Timer3 for next sampling
+  analyzeAllAxes(); // Analyze the samples after sampling is done
+  indicateConditionWithLED(generalizedFreq, generalizedMag); // Indicate condition with LED
+  //startTimer3(); // Restart Timer3 for the next sampling
 }
 
 #pragma endregion Timer & ISR
@@ -305,7 +316,7 @@ PeakInfo computeDominantFrequency(float* inputArray) {
   float vImag[MAX_SAMPLES] = {0.0};
   ArduinoFFT<float> FFT(inputArray, vImag, MAX_SAMPLES, SAMPLING_FREQUENCY);
 
-  //FFT.dcRemoval();
+  FFT.dcRemoval();
   FFT.windowing(FFTWindow::Hamming, FFTDirection::Forward);
   FFT.compute(FFTDirection::Forward);
   FFT.complexToMagnitude();
@@ -322,12 +333,40 @@ void analyzeAllAxes() {
   PeakInfo yg = computeDominantFrequency(yg_samples);
   PeakInfo zg = computeDominantFrequency(zg_samples);
 
-  dominantFreqMag[0] = xg.frequency;
-  dominantFreqMag[1] = yg.frequency;
-  dominantFreqMag[2] = zg.frequency;
-  dominantFreqMag[3] = xg.magnitude;
-  dominantFreqMag[4] = yg.magnitude;
-  dominantFreqMag[5] = zg.magnitude;
+  //dominantFreqMag[0] = xg.frequency;
+  //dominantFreqMag[1] = yg.frequency;
+  //dominantFreqMag[2] = zg.frequency;
+  //dominantFreqMag[3] = xg.magnitude;
+  //dominantFreqMag[4] = yg.magnitude;
+  //dominantFreqMag[5] = zg.magnitude;
+
+  if(LOGGING_ENABLED)
+  {
+    //Log it using dtostrf since the values are float
+    //char msg[MAX_MESSAGE_LENGTH];
+    //char xgStr[10], ygStr[10], zgStr[10], xgMagStr[10], ygMagStr[10], zgMagStr[10];
+//
+    //dtostrf(xg.frequency, 0, 2, xgStr);
+    //dtostrf(yg.frequency, 0, 2, ygStr);
+    //dtostrf(zg.frequency, 0, 2, zgStr);
+    //dtostrf(xg.magnitude, 0, 2, xgMagStr);
+    //dtostrf(yg.magnitude, 0, 2, ygMagStr);
+    //dtostrf(zg.magnitude, 0, 2, zgMagStr);
+//
+    //snprintf(msg, MAX_MESSAGE_LENGTH,
+    //  ">xg:%s Hz,m:%s;yg:%s Hz,m:%s;zg:%s Hz,m:%s\r\n",
+    //  xgStr,xgMagStr,
+    //  ygStr,ygMagStr,
+    //  zgStr,zgMagStr);
+    //
+    //queueLog(msg);
+
+    //use serial print to print all frequencies and magnitudes
+  }
+
+  generalizedFreq = sqrt(xg.frequency * xg.frequency + yg.frequency * yg.frequency + zg.frequency * zg.frequency); // Use sqrt of sum of squares for generalized frequency
+  generalizedMag = max(xg.magnitude, max(yg.magnitude, zg.magnitude)); // Use max magnitude for generalized magnitude
+
 }
 
 #pragma endregion FFT Functions
@@ -349,38 +388,29 @@ void realTimeTesting()
     }
     else if (command == 'l')
     {
-      // Only print size when sampling is done (sampleIndex == 0 means finished)
-      if (sampleIndex == 0)
-      {
-        Serial.print(F(">Samples collected: "));
-        Serial.println(lastSampleCount);
-      }
-      else
-      {
-        Serial.println(F(">Sampling not complete yet!"));
-      }
+      indicateConditionWithLED(4.0, 30); // Indicate condition with LED
     }
-    else if (command == 'f')
-    {
-      analyzeAllAxes();
-
-      Serial.println(F(">Dominant Frequencies and Magnitudes:"));
-
-      Serial.print(F("xg: "));
-      Serial.print(dominantFreqMag[0], 2);
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[3], 2);
-
-      Serial.print(F("yg: "));
-      Serial.print(dominantFreqMag[1], 2);
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[4], 2);
-
-      Serial.print(F("zg: "));
-      Serial.print(dominantFreqMag[2], 2);
-      Serial.print(F(" Hz, Magnitude: "));
-      Serial.println(dominantFreqMag[5], 2);
-    }
+    //else if (command == 'f')
+    //{
+    //  analyzeAllAxes();
+//
+    //  Serial.println(F(">Dominant Frequencies and Magnitudes:"));
+//
+    //  Serial.print(F("xg: "));
+    //  Serial.print(dominantFreqMag[0], 2);
+    //  Serial.print(F(" Hz, Magnitude: "));
+    //  Serial.println(dominantFreqMag[3], 2);
+//
+    //  Serial.print(F("yg: "));
+    //  Serial.print(dominantFreqMag[1], 2);
+    //  Serial.print(F(" Hz, Magnitude: "));
+    //  Serial.println(dominantFreqMag[4], 2);
+//
+    //  Serial.print(F("zg: "));
+    //  Serial.print(dominantFreqMag[2], 2);
+    //  Serial.print(F(" Hz, Magnitude: "));
+    //  Serial.println(dominantFreqMag[5], 2);
+    //}
   }
 }
 
@@ -413,6 +443,35 @@ void loopPrintLogs()
 }
 
 #pragma endregion Real-time Testing, Debugging, and Logging
+
+#pragma region USER INTERFACE
+
+// Function to indicate detected movement via LED
+void indicateConditionWithLED(float frequency, float amplitude) {
+
+  if (amplitude < 15.0) {
+    // No relevant movement: Turn off LED    
+    CircuitPlayground.clearPixels();
+    return;
+  }
+
+  if (frequency >= 3.0 && frequency <= 5.0) {
+    // Tremor: Green LED, medium brightness
+    CircuitPlayground.setBrightness(80);
+    CircuitPlayground.setPixelColor(0, 0, 255, 0);
+
+  } else if (frequency > 5.0) {
+    // Dyskinesia: Red LED, full brightness
+    CircuitPlayground.setBrightness(255);
+    CircuitPlayground.setPixelColor(0, 255, 0, 0);
+  } 
+  //else {
+  //  // No relevant movement
+  //  CircuitPlayground.setPixelColor(0, 0, 0, 0);
+  //}
+}
+
+#pragma endregion USER INTERFACE
 
 
 #pragma endregion Functions
