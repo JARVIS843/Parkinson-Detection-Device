@@ -102,6 +102,7 @@ void setup() {
   SPI.begin();
   SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
   CircuitPlayground.begin(); // Initialize Circuit Playground
+  CircuitPlayground.clearPixels(); 
 
 
   SensorSetup(); // Setup LIS3DH sensor
@@ -110,16 +111,17 @@ void setup() {
 
   setUpTimer1();  // Setup Timer1 for 20ms sampling, but not started yet
   setupTimer3();  // Setup Timer3 for 3 seconds sampling, but not started yet
+  startTimer3(); // Start Timer3 for the first sampling
 
   sei(); // Enable interrupts globally
 
   //delay(1000); // Wait for a second before starting the sampling
   //Serial.println(F(">Starting 3-second sampling..."));
-  //startTimer3(); // Start Timer3 for the first sampling
+  
 }
 
 void loop() {
-  realTimeTesting(); // Check for serial commands
+  //realTimeTesting(); // Check for serial commands
 
 
   loopPrintLogs(); // Print logs from logBuffer if logging is enabled
@@ -167,8 +169,8 @@ ISR(TIMER3_COMPA_vect) {
   lastSampleCount = sampleIndex;
   sampleIndex = 0;
   analyzeAllAxes(); // Analyze the samples after sampling is done
-  indicateConditionWithLED(generalizedFreq, generalizedMag); // Indicate condition with LED
-  //startTimer3(); // Restart Timer3 for the next sampling
+  //indicateConditionWithLED(generalizedFreq, generalizedMag); // Indicate condition with LED
+  startTimer3(); // Restart Timer3 for the next sampling
 }
 
 #pragma endregion Timer & ISR
@@ -206,6 +208,7 @@ void startTimer1() {
 }
 
 void startTimer3() {
+  Serial.println(F(">Starting Timer3..."));
   TCNT3 = 0;
   TCNT1 = 0;
   startSamplingTime = micros();
@@ -340,7 +343,7 @@ void analyzeAllAxes() {
   //dominantFreqMag[4] = yg.magnitude;
   //dominantFreqMag[5] = zg.magnitude;
 
-  if(LOGGING_ENABLED)
+  if(1)
   {
     //Log it using dtostrf since the values are float
     //char msg[MAX_MESSAGE_LENGTH];
@@ -362,11 +365,24 @@ void analyzeAllAxes() {
     //queueLog(msg);
 
     //use serial print to print all frequencies and magnitudes
+    //Serial.print(F("xg: "));
+    //Serial.print(xg.frequency, 2);
+    //Serial.print(F(" Hz, Magnitude: "));
+    //Serial.println(xg.magnitude, 2);
+    //Serial.print(F("yg: "));
+    //Serial.print(yg.frequency, 2);
+    //Serial.print(F(" Hz, Magnitude: "));
+    //Serial.println(yg.magnitude, 2);
+    //Serial.print(F("zg: "));
+    //Serial.print(zg.frequency, 2);
+    //Serial.print(F(" Hz, Magnitude: "));
+    //Serial.println(zg.magnitude, 2);
+
   }
 
   generalizedFreq = sqrt(xg.frequency * xg.frequency + yg.frequency * yg.frequency + zg.frequency * zg.frequency); // Use sqrt of sum of squares for generalized frequency
   generalizedMag = max(xg.magnitude, max(yg.magnitude, zg.magnitude)); // Use max magnitude for generalized magnitude
-
+  Serial.println(F(">Analysis Done"));
 }
 
 #pragma endregion FFT Functions
@@ -385,10 +401,6 @@ void realTimeTesting()
     {
       startTimer3();
       Serial.println(F(">Started 3-second sampling..."));
-    }
-    else if (command == 'l')
-    {
-      indicateConditionWithLED(4.0, 30); // Indicate condition with LED
     }
     //else if (command == 'f')
     //{
@@ -448,27 +460,69 @@ void loopPrintLogs()
 
 // Function to indicate detected movement via LED
 void indicateConditionWithLED(float frequency, float amplitude) {
-
-  if (amplitude < 15.0) {
-    // No relevant movement: Turn off LED    
+  Serial.println(F(">Displaying LEDs"));
+  CircuitPlayground.setBrightness(255); //all LEDs are at their maximum brightness
+  
+  
+  if (amplitude < 15) { //threshold for amplitude, can be adjusted
     CircuitPlayground.clearPixels();
     return;
   }
 
-  if (frequency >= 3.0 && frequency <= 5.0) {
-    // Tremor: Green LED, medium brightness
-    CircuitPlayground.setBrightness(80);
-    CircuitPlayground.setPixelColor(0, 0, 255, 0);
+  //Low frequency range (up to 3Hz) - Blue
+  if (frequency <= 3.0) {
+    for (int i = 0; i < 10; i++) {
+      CircuitPlayground.setPixelColor(i, 0, 0, 255);
+    }
+  }
+  //Medium frequency range (3-5Hz) - Green
+  else if (frequency > 3.0 && frequency <= 5.0) {
+    //How many pixels to light up
+    int pixelsToLight;
+    if (frequency <= 3.5) {
+      pixelsToLight = 3;  //At 3Hz, 3 pixels on
+    } else if (frequency <= 4.5) {
+      pixelsToLight = 5;  //At 4Hz, 5 pixels on
+    } else {
+      pixelsToLight = 10; //At 5Hz, 10 pixels on
+    }
+    //Number of pixels to green
+    for (int i = 0; i < 10; i++) {
+      if (i < pixelsToLight) {
+        CircuitPlayground.setPixelColor(i, 0, 255, 0);
+      } else {
+        CircuitPlayground.setPixelColor(i, 0, 0, 0);
+      }
+    }
+  }
 
-  } else if (frequency > 5.0) {
-    // Dyskinesia: Red LED, full brightness
-    CircuitPlayground.setBrightness(255);
-    CircuitPlayground.setPixelColor(0, 255, 0, 0);
-  } 
-  //else {
-  //  // No relevant movement
-  //  CircuitPlayground.setPixelColor(0, 0, 0, 0);
-  //}
+  //High frequency range (5-7Hz) - Red. This is the same as tremor code. 
+  else if (frequency > 5.0 && frequency <= 7.0) {
+    int pixelsToLight;
+    if (frequency <= 5.5) {
+      pixelsToLight = 3; 
+    } else if (frequency <= 6.5) {
+      pixelsToLight = 5; 
+    } else {
+      pixelsToLight = 10; 
+    
+    for (int i = 0; i < 10; i++) {
+      if (i < pixelsToLight) {
+        CircuitPlayground.setPixelColor(i, 255, 0, 0);
+      } else {
+        CircuitPlayground.setPixelColor(i, 0, 0, 0);
+      }
+    }
+  }
+}
+
+  // No relevant frequency range all will be off
+  else {
+    for (int i = 0; i < 10; i++) {
+      CircuitPlayground.setPixelColor(i, 0, 0, 0);
+    }
+  }
+
 }
 
 #pragma endregion USER INTERFACE
