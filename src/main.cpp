@@ -106,7 +106,7 @@ void indicateConditionWithLED(float frequency, float amplitude);
 void setup() {
   //Initialize led 
   strip.begin();
-  strip.setBrightness(255);
+  strip.setBrightness(100);
   strip.show();
 
   // Initialize Serial and SPI
@@ -487,11 +487,12 @@ void indicateConditionWithLED(float frequency, float amplitude) {
     }
     strip.show();
   }
+
+  // Tremor: 3.0 - 5.0 Hz
   else if (frequency > 3.0 && frequency <= 5.0) {
     int pixelsToLight;
-    if (frequency <= 3.5) pixelsToLight = 3;
-    else if (frequency <= 4.5) pixelsToLight = 5;
-    else pixelsToLight = 10;
+    pixelsToLight = map(frequency * 100, 300, 500, 1, NUM_PIXELS);
+    pixelsToLight = constrain(pixelsToLight, 1, NUM_PIXELS);
 
     for (int i = 0; i < NUM_PIXELS; i++) {
       if (i < pixelsToLight)
@@ -501,11 +502,12 @@ void indicateConditionWithLED(float frequency, float amplitude) {
     }
     strip.show();
   }
+
+  // Dyskinesia: 5.0 - 7.0 Hz
   else if (frequency > 5.0 && frequency <= 7.0) {
     int pixelsToLight;
-    if (frequency <= 5.5) pixelsToLight = 3;
-    else if (frequency <= 6.5) pixelsToLight = 5;
-    else pixelsToLight = 10;
+    pixelsToLight = map(frequency * 100, 500, 700, 1, NUM_PIXELS);
+    pixelsToLight = constrain(pixelsToLight, 1, NUM_PIXELS);
 
     for (int i = 0; i < NUM_PIXELS; i++) {
       if (i < pixelsToLight)
@@ -515,11 +517,13 @@ void indicateConditionWithLED(float frequency, float amplitude) {
     }
     strip.show();
   }
+
   else {
     strip.clear();
     strip.show();
   }
 }
+
 
 #pragma endregion USER INTERFACE
 
