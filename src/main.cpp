@@ -1,8 +1,15 @@
 #include <Arduino.h>
 #include <arduinoFFT.h>
-#include <Adafruit_CircuitPlayground.h>
 #include <SPI.h>
 #include <math.h> 
+
+//LED logic
+#include <Adafruit_NeoPixel.h>
+
+#define NEOPIXEL_PIN 17
+#define NUM_PIXELS   10
+
+Adafruit_NeoPixel strip = Adafruit_NeoPixel(NUM_PIXELS, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
 
 
 // ====== Constants and Configs ======
@@ -97,14 +104,16 @@ void indicateConditionWithLED(float frequency, float amplitude);
 // ====== Arduino Framework ======
 #pragma region Arduino Framework
 void setup() {
+  //Initialize led 
+  strip.begin();
+  strip.setBrightness(255);
+  strip.show();
+
   // Initialize Serial and SPI
   Serial.begin(115200);
   SPI.begin();
   SPI.beginTransaction(SPISettings(5000000, MSBFIRST, SPI_MODE0));
-  CircuitPlayground.begin(); // Initialize Circuit Playground
-  CircuitPlayground.clearPixels(); 
-
-
+  
   SensorSetup(); // Setup LIS3DH sensor
 
   cli(); // Disable interrupts globally
@@ -169,7 +178,7 @@ ISR(TIMER3_COMPA_vect) {
   lastSampleCount = sampleIndex;
   sampleIndex = 0;
   analyzeAllAxes(); // Analyze the samples after sampling is done
-  //indicateConditionWithLED(generalizedFreq, generalizedMag); // Indicate condition with LED
+  indicateConditionWithLED(generalizedFreq, generalizedMag); // Indicate condition with LED
   startTimer3(); // Restart Timer3 for the next sampling
 }
 
@@ -383,6 +392,10 @@ void analyzeAllAxes() {
   generalizedFreq = sqrt(xg.frequency * xg.frequency + yg.frequency * yg.frequency + zg.frequency * zg.frequency); // Use sqrt of sum of squares for generalized frequency
   generalizedMag = max(xg.magnitude, max(yg.magnitude, zg.magnitude)); // Use max magnitude for generalized magnitude
   Serial.println(F(">Analysis Done"));
+  Serial.print("Frequency: ");
+  Serial.println(generalizedFreq);
+  Serial.print("Amplitude: ");
+  Serial.println(generalizedMag);
 }
 
 #pragma endregion FFT Functions
@@ -461,68 +474,51 @@ void loopPrintLogs()
 // Function to indicate detected movement via LED
 void indicateConditionWithLED(float frequency, float amplitude) {
   Serial.println(F(">Displaying LEDs"));
-  CircuitPlayground.setBrightness(255); //all LEDs are at their maximum brightness
-  
-  
-  if (amplitude < 15) { //threshold for amplitude, can be adjusted
-    CircuitPlayground.clearPixels();
+
+  if (amplitude < 5.0) {
+    strip.clear();
+    strip.show();
     return;
   }
 
-  //Low frequency range (up to 3Hz) - Blue
   if (frequency <= 3.0) {
-    for (int i = 0; i < 10; i++) {
-      CircuitPlayground.setPixelColor(i, 0, 0, 255);
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      strip.setPixelColor(i, strip.Color(0, 0, 255)); // Blue
     }
+    strip.show();
   }
-  //Medium frequency range (3-5Hz) - Green
   else if (frequency > 3.0 && frequency <= 5.0) {
-    //How many pixels to light up
     int pixelsToLight;
-    if (frequency <= 3.5) {
-      pixelsToLight = 3;  //At 3Hz, 3 pixels on
-    } else if (frequency <= 4.5) {
-      pixelsToLight = 5;  //At 4Hz, 5 pixels on
-    } else {
-      pixelsToLight = 10; //At 5Hz, 10 pixels on
-    }
-    //Number of pixels to green
-    for (int i = 0; i < 10; i++) {
-      if (i < pixelsToLight) {
-        CircuitPlayground.setPixelColor(i, 0, 255, 0);
-      } else {
-        CircuitPlayground.setPixelColor(i, 0, 0, 0);
-      }
-    }
-  }
+    if (frequency <= 3.5) pixelsToLight = 3;
+    else if (frequency <= 4.5) pixelsToLight = 5;
+    else pixelsToLight = 10;
 
-  //High frequency range (5-7Hz) - Red. This is the same as tremor code. 
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      if (i < pixelsToLight)
+        strip.setPixelColor(i, strip.Color(0, 255, 0)); // Green
+      else
+        strip.setPixelColor(i, strip.Color(0, 0, 0));   // Off
+    }
+    strip.show();
+  }
   else if (frequency > 5.0 && frequency <= 7.0) {
     int pixelsToLight;
-    if (frequency <= 5.5) {
-      pixelsToLight = 3; 
-    } else if (frequency <= 6.5) {
-      pixelsToLight = 5; 
-    } else {
-      pixelsToLight = 10; 
-    
-    for (int i = 0; i < 10; i++) {
-      if (i < pixelsToLight) {
-        CircuitPlayground.setPixelColor(i, 255, 0, 0);
-      } else {
-        CircuitPlayground.setPixelColor(i, 0, 0, 0);
-      }
-    }
-  }
-}
+    if (frequency <= 5.5) pixelsToLight = 3;
+    else if (frequency <= 6.5) pixelsToLight = 5;
+    else pixelsToLight = 10;
 
-  // No relevant frequency range all will be off
+    for (int i = 0; i < NUM_PIXELS; i++) {
+      if (i < pixelsToLight)
+        strip.setPixelColor(i, strip.Color(255, 0, 0)); // Red
+      else
+        strip.setPixelColor(i, strip.Color(0, 0, 0));   // Off
+    }
+    strip.show();
+  }
   else {
-    for (int i = 0; i < 10; i++) {
-      CircuitPlayground.setPixelColor(i, 0, 0, 0);
-    }
+    strip.clear();
+    strip.show();
   }
-
 }
 
 #pragma endregion USER INTERFACE
